@@ -295,6 +295,10 @@ selected GSS codes to readable labels; preserves the GSS survey weight as
 `weight`; and keeps missing non-core persona attributes as `Unknown` rather than
 dropping those respondents.
 
+For GSS personas, AudienceKit uses `INCOME16` as the single default income
+field. It is rendered as reported family income last year before taxes, from all
+family sources, not as salary.
+
 ## Skills
 
 AudienceKit includes two optional agent skills in `skills/`:

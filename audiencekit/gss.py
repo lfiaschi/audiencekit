@@ -99,6 +99,9 @@ MAPPINGS = {
         16: "4 Years College",
         17: "5+ Years College",
     },
+    # INCOME16 is the expanded current-family-income card. It is the right
+    # persona-facing GSS income field; INCOM16 is a different childhood-origin
+    # variable and should not be used as current income.
     "income16": {
         1: "Under $1,000",
         2: "$1,000 to $2,999",

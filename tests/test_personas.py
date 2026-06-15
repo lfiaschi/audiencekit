@@ -139,4 +139,22 @@ def test_build_persona_renders_unknown_for_missing_values() -> None:
     persona = build_persona({"age": 44, "sex": "Female", "race": None})
 
     assert "44 year old Female Unknown adult" in persona
-    assert "household income is Unknown" in persona
+    assert "reported family income last year before taxes was Unknown" in persona
+
+
+def test_build_persona_frames_income16_as_reported_family_income_not_salary() -> None:
+    persona = build_persona(
+        {
+            "age": 68,
+            "sex": "Female",
+            "race": "White",
+            "region": "South Atlantic",
+            "income16": "$10,000 to $12,499",
+            "class": "Working Class",
+            "finrela": "Below average",
+            "satfin": "Not Satisfied",
+        }
+    )
+
+    assert "reported family income last year before taxes was $10,000 to $12,499" in persona
+    assert "from all family sources, not just salary" in persona
