@@ -114,6 +114,47 @@ By default, `ak.load_panel()` prepares the bundled public GSS 2024 Stata file.
 For trend work across years, download the full GSS 1972-2024 cumulative file
 from NORC and pass it to `ak.load_gss(...)`.
 
+## Default GSS Personas
+
+AudienceKit ships with a default GSS persona renderer. Start here before
+customizing prompts:
+
+```python
+import audiencekit as ak
+
+pool = ak.load_panel()
+row = ak.sample_panel(pool, n=1, seed=13).iloc[0].to_dict()
+
+print(ak.build_persona(row))
+```
+
+The default GSS persona uses these prepared columns:
+
+```text
+age, sex, race, region, res16, marital, educ, degree, income16,
+class, occ10, prestg10, finrela, satfin, partyid, polviews,
+relig, attend, childs, happy, health, tvhours, usewww, getahead
+```
+
+Under the hood, the GSS row is rendered with this template:
+
+```text
+You are a {age} year old {sex} {race} adult living in the {region} region of the United States, raised {res16}.
+You are {marital}. Your highest education is {educ} (degree: {degree}).
+Your reported family income last year before taxes was {income16}, from all family sources, not just salary.
+You describe your social class as {class_}.
+You work in: {occ10} (occupational prestige: {prestg10}). Compared with other households, your financial situation is {finrela}, and you feel {satfin} about it.
+Politically you identify as {partyid} and consider yourself {polviews}.
+Your religious preference is {relig}; you attend services {attend}.
+You have {childs} children. You describe yourself as {happy} overall and your health as {health}.
+You watch about {tvhours} hours of TV per day; internet user: {usewww}.
+You believe getting ahead in life comes from {getahead}.
+```
+
+The `income16` field is the GSS expanded current-family-income card. AudienceKit
+renders it as reported family income from all family sources, not as salary.
+Missing non-core fields render as `Unknown`.
+
 ## How It Works
 
 ```mermaid
