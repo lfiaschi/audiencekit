@@ -2,7 +2,15 @@ from __future__ import annotations
 
 import pandas as pd
 
-from audiencekit import PersonaTemplate, Study, SyntheticPanel, build_survey_prompt, parse_json_response
+from audiencekit import (
+    PersonaTemplate,
+    SSRAnchorSet,
+    SemanticSimilarityRater,
+    Study,
+    SyntheticPanel,
+    build_survey_prompt,
+    parse_json_response,
+)
 
 
 class FakeBackend:
@@ -19,6 +27,28 @@ class CapturingBackend:
     def get_completion(self, prompt, image=None, **kwargs):
         self.prompts.append(prompt)
         return '{"fit": 5}'
+
+
+class SSRBackend:
+    def __init__(self):
+        self.prompts = []
+
+    def get_completion(self, prompt, image=None, **kwargs):
+        self.prompts.append(prompt)
+        return '{"fit": "I would absolutely buy this.", "verbatim": "The compact size sounds useful."}'
+
+
+class TinyEmbeddings:
+    def encode(self, texts):
+        vectors = {
+            "I definitely would not buy it.": [1, 0, 0, 0, 0],
+            "I probably would not buy it.": [0, 1, 0, 0, 0],
+            "I am unsure whether I would buy it.": [0, 0, 1, 0, 0],
+            "I probably would buy it.": [0, 0, 0, 1, 0],
+            "I definitely would buy it.": [0, 0, 0, 0, 1],
+            "I would absolutely buy this.": [0, 0, 0, 0, 1],
+        }
+        return pd.DataFrame([vectors[text] for text in texts]).to_numpy(dtype=float)
 
 
 def test_parse_json_response_tolerates_fenced_json() -> None:
@@ -111,3 +141,45 @@ def test_synthetic_panel_accepts_custom_persona_template_for_non_gss_data() -> N
 
     assert results.loc[0, "fit"] == 5
     assert "You are 41, live in Midwest, and buy running shoes." in backend.prompts[0]
+
+
+def test_synthetic_panel_runs_ssr_survey_for_likert_questions() -> None:
+    respondents = pd.DataFrame(
+        [{"id": "r1", "age": "35", "sex": "Male", "region": "Pacific", "income16": "$50,000 to $59,999"}]
+    )
+    study = Study.from_dict(
+        {
+            "title": "Concept test",
+            "questions": [
+                {"id": "fit", "type": "likert", "text": "How likely would you be to buy it?"},
+                {"id": "verbatim", "type": "text", "text": "Reaction?"},
+            ],
+        }
+    )
+    rater = SemanticSimilarityRater(
+        [
+            SSRAnchorSet(
+                "purchase",
+                {
+                    1: "I definitely would not buy it.",
+                    2: "I probably would not buy it.",
+                    3: "I am unsure whether I would buy it.",
+                    4: "I probably would buy it.",
+                    5: "I definitely would buy it.",
+                },
+            )
+        ],
+        embeddings=TinyEmbeddings(),
+    )
+    backend = SSRBackend()
+
+    panel = SyntheticPanel(respondents, backend=backend)
+    results = panel.run_ssr_survey(study, rater=rater, reference_set_id="purchase", verbose=False)
+
+    assert "Do not answer Likert questions with numbers" in backend.prompts[0]
+    assert results.loc[0, "valid"] is True
+    assert results.loc[0, "fit_text"] == "I would absolutely buy this."
+    assert results.loc[0, "fit"] == 5.0
+    assert results.loc[0, "fit_most_likely"] == 5
+    assert results.loc[0, "fit_pmf_5"] == 1.0
+    assert results.loc[0, "verbatim"] == "The compact size sounds useful."
