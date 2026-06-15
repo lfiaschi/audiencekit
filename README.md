@@ -18,7 +18,7 @@ uv pip install -e ".[dev]"
 Set a model API key:
 
 ```bash
-export OPENAI_API_KEY=...
+export GEMINI_API_KEY=...
 ```
 
 ## Quick Start
@@ -41,10 +41,46 @@ study = ak.Study.from_dict({
 results = ak.SyntheticPanel(respondents).run_survey(study)
 ```
 
-## Generic Primitives
+By default, `SyntheticPanel` uses Gemini with `gemini-2.5-flash`.
 
-AudienceKit is not tied to GSS. New datasets should be added as adapters that
-produce ordinary DataFrames, then use the same primitives:
+## Model Backends
+
+AudienceKit supports Gemini, OpenAI, Anthropic, and custom backend objects.
+Gemini is the default:
+
+```python
+panel = ak.SyntheticPanel(respondents)  # Gemini, gemini-2.5-flash
+```
+
+Select another managed backend:
+
+```python
+panel = ak.SyntheticPanel(respondents, backend_type="openai", model="gpt-4o-mini")
+panel = ak.SyntheticPanel(respondents, backend_type="anthropic")
+```
+
+Required API keys:
+
+- Gemini: `GEMINI_API_KEY` or `GOOGLE_API_KEY`
+- OpenAI: `OPENAI_API_KEY`
+- Anthropic: `ANTHROPIC_API_KEY`
+
+For tests, local models, or another provider, pass any object with a
+`get_completion(prompt, image=None, **kwargs)` method:
+
+```python
+class MyBackend:
+    def get_completion(self, prompt, image=None, **kwargs):
+        return call_my_model(prompt, image=image, **kwargs)
+
+panel = ak.SyntheticPanel(respondents, backend=MyBackend())
+```
+
+## Extending Datasets
+
+AudienceKit is not tied to GSS. A dataset adapter only needs to produce a
+DataFrame with one row per audience member, an id column, and optionally a
+weight column. Then use the generic primitives:
 
 ```python
 frame = ak.AudienceFrame(my_dataframe, id_column="person_id", weight_column="survey_weight")
@@ -53,9 +89,21 @@ sample = frame.sample(n=100, segment=lambda row: row["country"] == "US")
 template = ak.PersonaTemplate("You are {age}, live in {region}, and buy {category}.")
 persona = template.render(sample.iloc[0].to_dict())
 
-panel = ak.SyntheticPanel(sample, persona_template=template, backend=my_backend)
+panel = ak.SyntheticPanel(sample, persona_template=template)
 results = panel.run_survey(study)
 ```
+
+Recommended adapter shape:
+
+```python
+def load_my_panel(path):
+    raw = read_my_source(path)
+    return raw.rename(columns={"respondent_id": "id", "survey_weight": "weight"})
+```
+
+Keep dataset-specific cleaning, labels, and missing-value rules in the adapter.
+Keep `AudienceFrame`, `PersonaTemplate`, `Study`, and `SyntheticPanel`
+dataset-neutral.
 
 ## GSS Adapter
 
@@ -84,6 +132,55 @@ according to their source terms.
   persona website browsing.
 - `scripts/` contains small utility scripts; the Python API is the primary
   interface.
+
+## Skills
+
+AudienceKit ships two optional agent skills:
+
+- `skills/survey/`: turn a research brief into a study spec, sample an
+  audience frame, run a panel, and summarize directional findings.
+- `skills/persona-browse/`: sample one persona and run a short qualitative
+  website walkthrough in that persona's voice.
+
+To use them, copy or symlink the skill folders into your agent's skill
+directory, or point your agent at this repository's `skills/` directory if your
+runtime supports repo-local skills. The skills are workflow guides; the Python
+API remains the source of truth.
+
+## Customizing Prompts
+
+AudienceKit has two prompt customization layers.
+
+Customize persona rendering with `PersonaTemplate`:
+
+```python
+template = ak.PersonaTemplate(
+    "You are {age}, live in {region}, shop for {category}, "
+    "and describe price sensitivity as {price_sensitivity}."
+)
+
+panel = ak.SyntheticPanel(respondents, persona_template=template)
+```
+
+For full control, pass a `prompt_builder(row, study_dict)` callable. This
+replaces AudienceKit's default survey prompt while keeping sampling, backend
+calls, parsing, and report utilities:
+
+```python
+def prompt_builder(row, study):
+    return f"""
+You are responding as this audience member:
+age={row["age"]}, segment={row["segment"]}
+
+Answer this study as JSON with these fields:
+{[q["id"] for q in study["questions"]]}
+"""
+
+panel = ak.SyntheticPanel(respondents, prompt_builder=prompt_builder)
+```
+
+You can also subclass or implement a backend when a provider needs a different
+message format.
 
 ## Methodological Grounding
 

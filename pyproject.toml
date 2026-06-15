@@ -8,6 +8,7 @@ license = "Apache-2.0"
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.0",
+    "google-genai>=1.0",
     "openai>=1.40",
     "anthropic>=0.34",
     "matplotlib>=3.8",

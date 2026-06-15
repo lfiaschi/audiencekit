@@ -212,7 +212,7 @@ class SyntheticPanel:
     def __init__(
         self,
         respondents: pd.DataFrame,
-        backend_type: str = "openai",
+        backend_type: str = "gemini",
         model: Optional[str] = None,
         backend: Any | None = None,
         persona_template: PersonaTemplate | str | Any | None = None,

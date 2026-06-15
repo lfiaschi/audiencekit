@@ -1,4 +1,4 @@
-"""LLM backends for synthetic audience studies: OpenAI and Anthropic.
+"""LLM backends for synthetic audience studies: Gemini, OpenAI, and Anthropic.
 
 Both support an optional local image attached to the prompt (vision input),
 which is how stimulus images reach the synthetic respondent.
@@ -33,11 +33,14 @@ class LLMBackend(ABC):
     """Minimal completion interface shared by all providers."""
 
     env_var: str = ""
+    env_vars: tuple[str, ...] = ()
 
     def __init__(self, api_key: Optional[str] = None, model: Optional[str] = None):
-        self.api_key = api_key or os.getenv(self.env_var)
+        env_vars = self.env_vars or (self.env_var,)
+        self.api_key = api_key or next((os.getenv(name) for name in env_vars if os.getenv(name)), None)
         if not self.api_key:
-            raise ValueError(f"Set {self.env_var} or pass api_key")
+            joined = " or ".join(env_vars)
+            raise ValueError(f"Set {joined} or pass api_key")
         self.model = model
         self._initialize_client()
 
@@ -91,6 +94,47 @@ class OpenAIBackend(LLMBackend):
         return response.choices[0].message.content
 
 
+class GeminiBackend(LLMBackend):
+    env_var = "GEMINI_API_KEY"
+    env_vars = ("GEMINI_API_KEY", "GOOGLE_API_KEY")
+
+    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-2.5-flash"):
+        super().__init__(api_key=api_key, model=model)
+
+    def _initialize_client(self) -> None:
+        from google import genai
+
+        self.client = genai.Client(api_key=self.api_key)
+
+    def _complete(self, prompt: str, image: Optional[Union[str, Path]], **kwargs: Any) -> str:
+        from google.genai import types
+
+        contents: Any = prompt
+        if image:
+            path = Path(image)
+            if not path.exists():
+                raise FileNotFoundError(f"Image file not found: {path}")
+            mime_type = mimetypes.guess_type(path)[0]
+            if not mime_type:
+                raise ValueError(f"Cannot determine mime type for: {path}")
+            contents = [
+                prompt,
+                types.Part.from_bytes(data=path.read_bytes(), mime_type=mime_type),
+            ]
+
+        config = types.GenerateContentConfig(
+            max_output_tokens=kwargs.pop("max_tokens", 1024),
+            temperature=kwargs.pop("temperature", 0.7),
+            **kwargs,
+        )
+        response = self.client.models.generate_content(
+            model=self.model,
+            contents=contents,
+            config=config,
+        )
+        return response.text or ""
+
+
 class AnthropicBackend(LLMBackend):
     env_var = "ANTHROPIC_API_KEY"
 
@@ -121,9 +165,11 @@ class AnthropicBackend(LLMBackend):
         return "".join(block.text for block in message.content if block.type == "text")
 
 
-def make_backend(backend_type: str = "openai", model: Optional[str] = None) -> LLMBackend:
+def make_backend(backend_type: str = "gemini", model: Optional[str] = None) -> LLMBackend:
+    if backend_type == "gemini":
+        return GeminiBackend(model=model or "gemini-2.5-flash")
     if backend_type == "openai":
         return OpenAIBackend(model=model or "gpt-4o-mini")
     if backend_type == "anthropic":
         return AnthropicBackend(model=model or "claude-haiku-4-5-20251001")
-    raise ValueError(f"Unsupported backend: {backend_type!r} (use 'openai' or 'anthropic')")
+    raise ValueError(f"Unsupported backend: {backend_type!r} (use 'gemini', 'openai', or 'anthropic')")

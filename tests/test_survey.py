@@ -76,6 +76,20 @@ def test_synthetic_panel_accepts_injected_backend() -> None:
     assert results.loc[0, "verbatim"] == "Looks useful."
 
 
+def test_synthetic_panel_defaults_to_gemini_backend(monkeypatch) -> None:
+    calls = []
+
+    def fake_make_backend(backend_type, model):
+        calls.append((backend_type, model))
+        return FakeBackend()
+
+    monkeypatch.setattr("audiencekit.survey.make_backend", fake_make_backend)
+
+    SyntheticPanel(pd.DataFrame([{"id": "r1"}]))
+
+    assert calls == [("gemini", None)]
+
+
 def test_synthetic_panel_accepts_custom_persona_template_for_non_gss_data() -> None:
     respondents = pd.DataFrame(
         [{"person_id": "u1", "age": 41, "region": "Midwest", "category": "running shoes"}]

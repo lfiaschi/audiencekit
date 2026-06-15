@@ -17,6 +17,7 @@ Extract these from the brief:
 - Segment: broad population, named segment, or explicit row-filter rule.
 - Treatments: alternate framings or concepts to compare.
 - Panel size: default 25 for live exploration; use 100+ only when requested.
+- Backend: Gemini is the default; use OpenAI, Anthropic, or a custom backend only when requested.
 
 Ask one clarifying question only when the core research objective or audience is ambiguous.
 
@@ -57,7 +58,16 @@ For full GSS files:
 pool = ak.load_gss("path/to/gss7224_r3.dta", years=[2024])
 ```
 
-For non-GSS datasets, create an `ak.AudienceFrame` and pass a custom persona template or backend as needed.
+For non-GSS datasets, create an `ak.AudienceFrame` and pass a custom persona template:
+
+```python
+frame = ak.AudienceFrame(df, id_column="person_id", weight_column="survey_weight")
+respondents = frame.sample(n=50, segment_name="target")
+template = ak.PersonaTemplate("You are {age}, live in {region}, and buy {category}.")
+results = ak.SyntheticPanel(respondents, persona_template=template).run_survey(study)
+```
+
+Use `prompt_builder(row, study_dict)` only when the default survey prompt is too generic for the research design. Preserve JSON-only output instructions and exact question ids.
 
 ## Report
 

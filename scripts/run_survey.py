@@ -3,7 +3,7 @@
 Usage:
     uv run python scripts/run_survey.py --spec examples/ferrari_luce/study.json \
         [--n 30] [--segment broad|luxury] [--treatment NAME] [--seed 42] \
-        [--backend openai|anthropic] [--out results/my_survey]
+        [--backend gemini|openai|anthropic] [--out results/my_survey]
 
 The spec is the JSON survey format accepted by audiencekit.Study.
 If the spec has a "treatments" map ({name: stimulus description}), pass
@@ -33,7 +33,7 @@ def main() -> None:
     parser.add_argument("--segment", default="broad", choices=["broad", "luxury"])
     parser.add_argument("--treatment", default=None)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--backend", default="openai", choices=["openai", "anthropic"])
+    parser.add_argument("--backend", default="gemini", choices=["gemini", "openai", "anthropic"])
     parser.add_argument("--model", default=None)
     parser.add_argument("--out", default=None, help="Output directory (default: results/<spec stem>)")
     args = parser.parse_args()
