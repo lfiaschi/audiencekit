@@ -18,6 +18,9 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+ssr = [
+    "sentence-transformers>=2.2",
+]
 
 [tool.setuptools]
 packages = ["audiencekit", "audiencekit.data"]

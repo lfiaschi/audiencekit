@@ -43,6 +43,8 @@ rows.
   with an id and optional weight column can become an audience.
 - **Structured studies**: define stimuli, treatment arms, Likert items, choices,
   and open-ended questions as reusable specs.
+- **SSR scoring for Likert items**: optionally elicit text first, then map it to
+  Likert probability distributions with semantic-similarity rating.
 - **Provider flexibility**: Gemini is the default backend, with OpenAI,
   Anthropic, and custom backend objects supported.
 - **Agent-ready workflows**: included skills help an agent structure surveys and
@@ -59,6 +61,12 @@ git clone https://github.com/lfiaschi/audiencekit.git
 cd audiencekit
 uv venv
 uv pip install -e ".[dev]"
+```
+
+For local SSR embeddings, install the optional SSR extra:
+
+```bash
+uv pip install -e ".[dev,ssr]"
 ```
 
 Set a model API key. Gemini is the default backend:
@@ -93,7 +101,7 @@ study = ak.Study.from_dict({
         {
             "id": "consideration",
             "type": "likert",
-            "text": "How likely would you be to consider it?"
+            "text": "How likely would you be to consider buying it?"
         },
         {
             "id": "first_reaction",
@@ -113,6 +121,73 @@ print(results[["respondent_id", "first_reaction"]].head())
 By default, `ak.load_panel()` prepares the bundled public GSS 2024 Stata file.
 For trend work across years, download the full GSS 1972-2024 cumulative file
 from NORC and pass it to `ak.load_gss(...)`.
+
+## Semantic Similarity Rating
+
+AudienceKit supports semantic-similarity rating (SSR) as an opt-in scoring layer
+for Likert questions. Instead of asking the model for a number directly,
+`run_ssr_survey(...)` asks for a short natural-language answer, embeds that text,
+compares it with reference anchors, and returns a probability mass function over
+the rating scale.
+
+```python
+rater = ak.SemanticSimilarityRater.for_purchase_intent()
+
+ssr_results = ak.SyntheticPanel(respondents).run_ssr_survey(
+    ak.Study.from_dict({
+        "title": "Compact EV purchase-intent test",
+        "stimulus": study.stimulus,
+        "questions": [
+            {
+                "id": "consideration",
+                "type": "likert",
+                "text": "How likely would you be to consider buying it?"
+            },
+            {
+                "id": "why",
+                "type": "text",
+                "text": "What is the main reason for your reaction?"
+            },
+        ],
+    }),
+    rater=rater,
+    reference_set_id="mean",
+)
+
+print(ssr_results[[
+    "respondent_id",
+    "consideration_text",
+    "consideration",
+    "consideration_pmf_1",
+    "consideration_pmf_5",
+]].head())
+```
+
+The expected score is stored in the original question column, such as
+`consideration`. The elicited text is stored in `consideration_text`, the most
+likely rating in `consideration_most_likely`, and the distribution in
+`consideration_pmf_1` through `consideration_pmf_5`.
+
+SSR is implemented as a generic rater, not as a GSS feature. You can provide
+custom anchors for any ordered scale:
+
+```python
+anchors = ak.SSRAnchorSet("message_clarity", {
+    1: "The message is very unclear to me.",
+    2: "The message is somewhat unclear to me.",
+    3: "The message is neither clear nor unclear.",
+    4: "The message is somewhat clear to me.",
+    5: "The message is very clear to me.",
+})
+
+rater = ak.SemanticSimilarityRater([anchors])
+```
+
+By default, `SemanticSimilarityRater` uses `sentence-transformers` through the
+`ssr` extra. For hosted embeddings, local models, or tests, pass any object with
+`encode(texts)` or any callable that returns a two-dimensional NumPy-compatible
+array. This keeps SSR independent from the model backend used to generate the
+synthetic responses.
 
 ## How It Works
 
@@ -256,7 +331,12 @@ template = ak.PersonaTemplate(
     "and currently buy {category} tools. Your budget authority is {budget_owner}."
 )
 
-panel = ak.SyntheticPanel(respondents, persona_template=template)
+panel = ak.SyntheticPanel(
+    respondents,
+    id_column="customer_id",
+    weight_column="survey_weight",
+    persona_template=template,
+)
 results = panel.run_survey(study)
 ```
 
@@ -365,11 +445,15 @@ Recommended reading:
   and ratings are mapped from embedding similarity to reference statements. The
   paper reports stronger purchase-intent replication than direct numeric
   Likert prompting.
+- [pymc-labs/semantic-similarity-rating](https://github.com/pymc-labs/semantic-similarity-rating/)
+  provides the standalone research implementation that informed AudienceKit's
+  SSR-compatible rating layer.
 
-AudienceKit v0.1 keeps direct structured Likert questions because they are
-simple, inspectable, and useful for within-run pressure tests. Treat SSR-style
-text-first scoring as a stronger validation direction for future adapters or
-custom backends, not as a feature this release already implements.
+AudienceKit supports both direct structured Likert prompting and SSR-style
+text-first scoring. Direct Likert runs are simple and cheap to inspect. SSR runs
+preserve the synthetic respondent's rationale and usually provide a better
+methodological default for purchase-intent style studies, provided your anchors
+match the question being scored.
 
 When reporting results, be precise:
 

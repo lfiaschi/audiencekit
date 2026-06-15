@@ -25,6 +25,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import re
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -34,6 +35,7 @@ import pandas as pd
 from .backends import make_backend
 from .personas import build_persona
 from .primitives import PersonaTemplate
+from .ssr import SemanticSimilarityRater
 
 LIKERT_ANCHORS = (
     "1 = very low / strongly disagree\n"
@@ -188,6 +190,57 @@ Return a single JSON object with exactly those field names and nothing else.
 No markdown, no commentary."""
 
 
+def build_ssr_survey_prompt(
+    attributes: dict,
+    survey: Study | dict[str, Any],
+    *,
+    persona_template: PersonaTemplate | str | Any | None = None,
+) -> str:
+    """Build a prompt that elicits text for Likert items before SSR scoring."""
+    survey_dict = _as_study_dict(survey)
+    persona = render_persona(attributes, persona_template)
+    stimulus = survey_dict.get("stimulus") or {}
+    stimulus_block = ""
+    if stimulus.get("description"):
+        stimulus_block = f"\n# What you are shown\n{stimulus['description']}\n"
+        if stimulus.get("image"):
+            stimulus_block += "You are also looking at an image of it.\n"
+
+    lines = []
+    has_likert = False
+    for q in survey_dict["questions"]:
+        if q["type"] == "likert":
+            lines.append(f'- "{q["id"]}" (short natural-language answer, not a number): {q["text"]}')
+            has_likert = True
+        elif q["type"] == "choice":
+            lines.append(f'- "{q["id"]}" (one of {q["options"]}): {q["text"]}')
+        else:
+            lines.append(f'- "{q["id"]}" (short natural sentence or two): {q["text"]}')
+    question_block = "\n".join(lines)
+
+    ssr_instruction = (
+        "\nDo not answer Likert questions with numbers or scale labels. "
+        "Write the thought you would naturally express before choosing a rating.\n"
+        if has_likert
+        else ""
+    )
+
+    return f"""# Role
+You are a consumer taking part in a market research interview.
+Answer naturally from your own point of view and stay consistent with this profile.
+There are no right answers. Be direct and honest — you can like some aspects and dislike others.
+
+# Who you are
+{persona}
+{stimulus_block}
+# Questionnaire
+Answer ALL of the following fields:
+{question_block}
+{ssr_instruction}
+Return a single JSON object with exactly those field names and nothing else.
+No markdown, no commentary."""
+
+
 def parse_json_response(raw: str) -> Optional[dict]:
     """Parse a model response into a dict, tolerating code fences and prose."""
     if not raw:
@@ -217,6 +270,9 @@ class SyntheticPanel:
         backend: Any | None = None,
         persona_template: PersonaTemplate | str | Any | None = None,
         prompt_builder: Any | None = None,
+        id_column: str = "id",
+        weight_column: str | None = "weight",
+        metadata_columns: Sequence[str] | None = None,
         temperature: float = 0.7,
         max_workers: int = 8,
     ):
@@ -224,11 +280,24 @@ class SyntheticPanel:
         self.backend = backend or make_backend(backend_type, model)
         self.persona_template = persona_template
         self.prompt_builder = prompt_builder
+        self.id_column = id_column
+        self.weight_column = weight_column
+        self.metadata_columns = tuple(metadata_columns or ("age", "sex", "region", "income16", "segment"))
         self.temperature = temperature
         self.max_workers = max_workers
 
     def __len__(self) -> int:
         return len(self.respondents)
+
+    def _base_record(self, row: dict[str, Any]) -> dict[str, Any]:
+        record: dict[str, Any] = {"respondent_id": row.get(self.id_column, row.get("id"))}
+        if self.weight_column and self.weight_column in row:
+            record["weight"] = row.get(self.weight_column)
+        for column in self.metadata_columns:
+            if column in row:
+                record[column] = row.get(column)
+        record.setdefault("segment", row.get("segment", "broad"))
+        return record
 
     def run_survey(
         self,
@@ -259,15 +328,8 @@ class SyntheticPanel:
                 parsed = parse_json_response(raw)
             except RuntimeError:
                 parsed = None
-            record = {
-                "respondent_id": row.get("id"),
-                "age": row.get("age"),
-                "sex": row.get("sex"),
-                "region": row.get("region"),
-                "income16": row.get("income16"),
-                "segment": row.get("segment", "broad"),
-                "valid": parsed is not None,
-            }
+            record = self._base_record(row)
+            record["valid"] = parsed is not None
             if parsed:
                 for q in survey_dict["questions"]:
                     record[q["id"]] = parsed.get(q["id"])
@@ -287,4 +349,81 @@ class SyntheticPanel:
         for q in survey_dict["questions"]:
             if q["type"] == "likert" and q["id"] in df.columns:
                 df[q["id"]] = pd.to_numeric(df[q["id"]], errors="coerce")
+        return df
+
+    def run_ssr_survey(
+        self,
+        survey: Study | dict[str, Any],
+        *,
+        rater: SemanticSimilarityRater | Mapping[str, SemanticSimilarityRater],
+        reference_set_id: str | Mapping[str, str] = "mean",
+        image: Optional[Union[str, Path]] = None,
+        verbose: bool = True,
+    ) -> pd.DataFrame:
+        """Run a survey with textual Likert elicitation and SSR scoring.
+
+        Likert question values are expected scores. Raw elicited text is stored
+        in ``{question_id}_text`` and per-score PMFs in
+        ``{question_id}_pmf_{score}`` columns.
+        """
+        survey_dict = _as_study_dict(survey)
+        stimulus = survey_dict.get("stimulus") or {}
+        image_path = image or stimulus.get("image")
+
+        def _one(idx: int) -> dict:
+            row = self.respondents.iloc[idx].to_dict()
+            if self.prompt_builder:
+                prompt = self.prompt_builder(row, survey_dict)
+            else:
+                prompt = build_ssr_survey_prompt(row, survey_dict, persona_template=self.persona_template)
+            try:
+                raw = self.backend.get_completion(
+                    prompt, image=image_path, temperature=self.temperature
+                )
+                parsed = parse_json_response(raw)
+            except RuntimeError:
+                parsed = None
+            record = self._base_record(row)
+            record["valid"] = parsed is not None
+            if parsed:
+                for q in survey_dict["questions"]:
+                    value = parsed.get(q["id"])
+                    if q["type"] == "likert":
+                        record[f"{q['id']}_text"] = None if value is None else str(value)
+                    else:
+                        record[q["id"]] = value
+            if verbose:
+                print(".", end="", flush=True)
+            return record
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+            records = list(pool.map(_one, range(len(self.respondents))))
+        if verbose:
+            valid = sum(r["valid"] for r in records)
+            print(f" done ({valid}/{len(records)} valid)")
+
+        df = pd.DataFrame(records)
+        if "valid" in df.columns:
+            df["valid"] = df["valid"].astype(object)
+
+        for q in survey_dict["questions"]:
+            if q["type"] != "likert":
+                continue
+            qid = q["id"]
+            text_col = f"{qid}_text"
+            if text_col not in df.columns:
+                continue
+            scorer = rater[qid] if isinstance(rater, Mapping) else rater
+            ref_id = reference_set_id[qid] if isinstance(reference_set_id, Mapping) else reference_set_id
+            mask = df["valid"].astype(bool) & df[text_col].notna()
+            if not mask.any():
+                continue
+
+            scored = scorer.score_texts(df.loc[mask, text_col].astype(str).tolist(), reference_set_id=ref_id)
+            scored_frame = scored.to_frame(prefix=qid)
+            for column in scored_frame.columns:
+                if column not in df.columns:
+                    df[column] = pd.NA
+                df.loc[mask, column] = scored_frame[column].to_numpy()
+
         return df

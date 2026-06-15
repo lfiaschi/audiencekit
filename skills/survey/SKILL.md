@@ -46,6 +46,23 @@ study = ak.Study.from_json("examples/my_study/study.json")
 results = ak.SyntheticPanel(respondents).run_survey(study)
 ```
 
+For purchase intent or other distribution-sensitive Likert items, prefer
+semantic-similarity rating (SSR) when embeddings are available:
+
+```python
+rater = ak.SemanticSimilarityRater.for_purchase_intent()
+results = ak.SyntheticPanel(respondents).run_ssr_survey(
+    study,
+    rater=rater,
+    reference_set_id="mean",
+)
+```
+
+Use custom `ak.SSRAnchorSet` anchors when the question is not purchase intent.
+SSR results keep the elicited text in `{question_id}_text`, expected score in
+`{question_id}`, and probability columns in `{question_id}_pmf_1` through
+`{question_id}_pmf_5`.
+
 For a user-prepared panel:
 
 ```python
