@@ -1,6 +1,9 @@
 # Data And Asset Notice
 
-The MIT license covers the AudienceKit source code.
+AudienceKit
+Copyright 2026 Luca Fiaschi
+
+The Apache License 2.0 covers the AudienceKit source code.
 
 ## Bundled GSS Sample Panel
 

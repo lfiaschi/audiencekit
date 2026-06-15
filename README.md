@@ -72,9 +72,9 @@ respondents = ak.sample_panel(pool, n=600, weighted=True)
 survey weight as `weight`, and keeps missing non-core persona attributes as
 `Unknown` rather than dropping those respondents.
 
-The MIT license covers AudienceKit code. Bundled sample data and example assets
-are documented separately in `NOTICE.md` and should be treated according to
-their source terms.
+The Apache License 2.0 covers AudienceKit code. Bundled sample data and
+example assets are documented separately in `NOTICE.md` and should be treated
+according to their source terms.
 
 ## Examples
 

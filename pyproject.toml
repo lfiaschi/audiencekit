@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Synthetic audience studies grounded in real survey microdata"
 requires-python = ">=3.11"
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 dependencies = [
     "numpy>=1.26",
     "pandas>=2.0",
