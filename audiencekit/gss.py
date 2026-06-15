@@ -14,13 +14,14 @@ from typing import Iterable
 
 import pandas as pd
 
-PERSONA_COLUMNS = [
+SOURCE_COLUMNS = [
     "id",
     "year",
     "wtssnrps",
     "age",
     "sex",
     "race",
+    "racecen1",
     "region",
     "res16",
     "marital",
@@ -28,20 +29,65 @@ PERSONA_COLUMNS = [
     "degree",
     "income16",
     "class",
+    "wrkstat",
+    "weekswrk",
+    "wrkslf",
+    "earnrs",
+    "adults",
+    "born",
+    "sibs",
+    "madeg",
     "occ10",
     "prestg10",
     "finrela",
     "satfin",
     "partyid",
     "polviews",
-    "relig",
+    "reltrad",
+    "relpersn",
     "attend",
     "childs",
     "happy",
     "health",
-    "tvhours",
-    "usewww",
-    "getahead",
+    "natsoc",
+]
+
+PERSONA_COLUMNS = [
+    "id",
+    "year",
+    "wtssnrps",
+    "age",
+    "sex",
+    "race",
+    "race_detail",
+    "region",
+    "res16",
+    "marital",
+    "educ",
+    "degree",
+    "income16",
+    "class",
+    "wrkstat",
+    "weekswrk",
+    "wrkslf",
+    "earnrs",
+    "adults",
+    "born",
+    "sibs",
+    "madeg",
+    "occ10",
+    "prestg10",
+    "finrela",
+    "satfin",
+    "partyid",
+    "polviews",
+    "reltrad",
+    "relpersn",
+    "attend",
+    "childs",
+    "happy",
+    "health",
+    "natsoc",
 ]
 
 # Rows must be complete only on post-stratification fields plus a valid weight.
@@ -50,9 +96,114 @@ CORE_FIELDS = ["age", "sex", "race", "region", "educ"]
 
 GSS_MISSING_VALUES = {-100, -99, -98, -97, -90, -80, -70}
 
+DEGREE_MAPPING = {
+    0: "Less than high school",
+    1: "High school",
+    2: "Associate/Junior college",
+    3: "Bachelor's",
+    4: "Graduate",
+}
+
+
+def _map_education_years(value: float) -> str | None:
+    if not 0 <= value <= 20:
+        return None
+    labels = {
+        0: "No formal schooling",
+        1: "1st grade",
+        2: "2nd grade",
+        3: "3rd grade",
+        20: "8 or more years of college",
+    }
+    if int(value) in labels:
+        return labels[int(value)]
+    if 4 <= value <= 12:
+        return f"{int(value)}th grade"
+    if value == 13:
+        return "1 year of college"
+    return f"{int(value) - 12} years of college"
+
+
+def _map_weeks_worked(value: float) -> str | None:
+    if not 0 <= value <= 52:
+        return None
+    weeks = int(value)
+    return "1 week" if weeks == 1 else f"{weeks} weeks"
+
+
+def _map_adults(value: float) -> str | None:
+    if not 1 <= value <= 8:
+        return None
+    adults = int(value)
+    if adults == 1:
+        return "1 adult"
+    if adults == 8:
+        return "8 or more adults"
+    return f"{adults} adults"
+
+
+def _map_earners(value: float) -> str | None:
+    if not 0 <= value <= 3:
+        return None
+    earners = int(value)
+    if earners == 1:
+        return "1 earner"
+    if earners == 3:
+        return "3 or more earners"
+    return f"{earners} earners"
+
+
+def _map_siblings(value: float) -> str | None:
+    if not 0 <= value <= 6:
+        return None
+    siblings = int(value)
+    if siblings == 1:
+        return "1 sibling"
+    if siblings == 6:
+        return "6 or more siblings"
+    return f"{siblings} siblings"
+
+
+def _map_occupation(value: float) -> str | None:
+    if pd.isna(value):
+        return None
+    code = int(value)
+    # OCC10 is a detailed Census 2010 occupation code. The persona prompt uses
+    # broad Census-style groups so rows are informative without overfitting to
+    # hundreds of sparse job titles.
+    if 10 <= code <= 3540:
+        return "management, business, science, and arts occupations"
+    if 3600 <= code <= 4650:
+        return "service occupations"
+    if 4700 <= code <= 5940:
+        return "sales and office occupations"
+    if 6005 <= code <= 7630:
+        return "natural resources, construction, and maintenance occupations"
+    if 7700 <= code <= 9750:
+        return "production, transportation, and material moving occupations"
+    if 9800 <= code <= 9830:
+        return "military specific occupations"
+    return None
+
+
 MAPPINGS = {
     "sex": {1: "Male", 2: "Female"},
     "race": {1: "White", 2: "Black", 3: "Other"},
+    "racecen1": {
+        1: "White",
+        2: "Black or African American",
+        3: "American Indian or Alaska Native",
+        4: "Asian Indian",
+        5: "Chinese",
+        6: "Filipino",
+        7: "Japanese",
+        8: "Korean",
+        9: "Vietnamese",
+        10: "Other Asian",
+        14: "Other Pacific Islander",
+        15: "Some other race",
+        16: "Hispanic",
+    },
     "marital": {1: "Married", 2: "Widowed", 3: "Divorced", 4: "Separated", 5: "Never Married"},
     "happy": {1: "Very Happy", 2: "Pretty Happy", 3: "Not Too Happy"},
     "health": {1: "Excellent", 2: "Good", 3: "Fair", 4: "Poor"},
@@ -77,28 +228,14 @@ MAPPINGS = {
         8: "More Than Once A Week",
     },
     "region": {
-        1: "New England",
-        2: "Middle Atlantic",
-        3: "East North Central",
-        4: "West North Central",
-        5: "South Atlantic",
-        6: "East South Central",
-        7: "West South Central",
-        8: "Mountain",
-        9: "Pacific",
+        # GSS 2024 recoded REGION to four Census regions and renamed the old
+        # 1972-2022 nine-division variable to REGION_7222.
+        1: "Northeast",
+        2: "Midwest",
+        3: "South",
+        4: "West",
     },
-    "educ": {
-        **{i: f"{i}th Grade" for i in range(4, 13)},
-        0: "No Formal Schooling",
-        1: "1st Grade",
-        2: "2nd Grade",
-        3: "3rd Grade",
-        13: "1 Year College",
-        14: "2 Years College",
-        15: "3 Years College",
-        16: "4 Years College",
-        17: "5+ Years College",
-    },
+    "educ": _map_education_years,
     # INCOME16 is the expanded current-family-income card. It is the right
     # persona-facing GSS income field; INCOM16 is a different childhood-origin
     # variable and should not be used as current income.
@@ -140,10 +277,8 @@ MAPPINGS = {
         6: "Strong Republican",
         7: "Other",
     },
-    "relig": {1: "Protestant", 2: "Catholic", 3: "Jewish", 4: "None", 5: "Other"},
     "class": {1: "Lower Class", 2: "Working Class", 3: "Middle Class", 4: "Upper Class"},
     "satfin": {1: "Satisfied", 2: "More or less satisfied", 3: "Not Satisfied"},
-    "getahead": {1: "Hard Work", 2: "Connections", 3: "Luck"},
     "res16": {
         1: "in open country but not on a farm",
         2: "on a farm",
@@ -152,13 +287,24 @@ MAPPINGS = {
         5: "in a suburb near a large city",
         6: "in a large city (over 250,000)",
     },
-    "degree": {
-        0: "Less than high school",
-        1: "High school",
-        2: "Associate/Junior college",
-        3: "Bachelor's",
-        4: "Graduate",
+    "degree": DEGREE_MAPPING,
+    "madeg": DEGREE_MAPPING,
+    "wrkstat": {
+        1: "working full time",
+        2: "working part time",
+        3: "with a job, but not at work",
+        4: "unemployed, laid off, or looking for work",
+        5: "retired",
+        6: "in school",
+        7: "keeping house",
+        8: "other",
     },
+    "weekswrk": _map_weeks_worked,
+    "wrkslf": {1: "self-employed", 2: "working for someone else"},
+    "earnrs": _map_earners,
+    "adults": _map_adults,
+    "born": {1: "born in the United States", 2: "not born in the United States"},
+    "sibs": _map_siblings,
     "finrela": {
         1: "Far below average",
         2: "Below average",
@@ -166,18 +312,25 @@ MAPPINGS = {
         4: "Above average",
         5: "Far above average",
     },
-    "occ10": {
-        10: "Management, professional, and related occupations",
-        3600: "Service occupations",
-        4700: "Sales and office occupations",
-        6005: "Natural resources, construction, and maintenance occupations",
-        7700: "Production, transportation, and material moving occupations",
-        9830: "Military specific occupations",
+    "occ10": _map_occupation,
+    "reltrad": {
+        1: "evangelical Protestant",
+        2: "mainline Protestant",
+        3: "Black Protestant",
+        4: "Catholic",
+        5: "Jewish",
+        6: "other faith",
+        7: "nonaffiliated",
     },
-    "usewww": {1: "Yes", 2: "No"},
+    "relpersn": {
+        1: "very religious",
+        2: "moderately religious",
+        3: "slightly religious",
+        4: "not religious at all",
+    },
+    "natsoc": {1: "too little", 2: "about right", 3: "too much"},
     "age": lambda x: str(int(x)) if 0 <= x <= 100 else None,
     "childs": lambda x: str(int(x)) if 0 <= x <= 20 else None,
-    "tvhours": lambda x: str(int(x)) if 0 <= x <= 24 else None,
     "prestg10": lambda x: "Low" if 0 <= x < 50 else "High" if 50 <= x <= 100 else None,
 }
 
@@ -196,7 +349,7 @@ def load_gss(
     layer handles codes consistently across releases.
     """
     source = Path(path)
-    read_columns = columns or PERSONA_COLUMNS
+    read_columns = columns or SOURCE_COLUMNS
     if weight_column not in read_columns:
         read_columns = [*read_columns, weight_column]
 
@@ -260,13 +413,15 @@ def prepare_gss_persona_frame(
         selected_years = {int(years)} if isinstance(years, int) else {int(year) for year in years}
         prepared = prepared[prepared["year"].astype(int).isin(selected_years)].copy()
 
-    for column in PERSONA_COLUMNS:
+    for column in SOURCE_COLUMNS:
         if column not in prepared.columns and column != "wtssnrps":
             prepared[column] = None
 
     for column in prepared.columns:
         if column in MAPPINGS:
             prepared[column] = _map_values(prepared[column], MAPPINGS[column])
+
+    prepared["race_detail"] = prepared["racecen1"].combine_first(prepared["race"])
 
     prepared = prepared.dropna(subset=CORE_FIELDS + [weight_column]).copy()
     prepared[weight_column] = pd.to_numeric(prepared[weight_column], errors="coerce")

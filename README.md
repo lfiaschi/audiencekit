@@ -138,31 +138,44 @@ The default GSS persona uses these prepared columns:
 ```python
 ak.GSS_PERSONA_FIELDS
 # (
-#     "age", "sex", "race", "region", "res16", "marital", "educ",
-#     "degree", "income16", "class", "occ10", "prestg10", "finrela",
-#     "satfin", "partyid", "polviews", "relig", "attend", "childs",
-#     "happy", "health", "tvhours", "usewww", "getahead",
+#     "age", "sex", "race_detail", "region", "res16", "born", "marital",
+#     "childs", "adults", "sibs", "educ", "degree", "madeg", "income16",
+#     "earnrs", "class", "wrkstat", "weekswrk", "wrkslf", "occ10",
+#     "prestg10", "finrela", "satfin", "partyid", "polviews", "reltrad",
+#     "relpersn", "attend", "happy", "health", "natsoc",
 # )
 ```
+
+The bundled GSS template intentionally uses broad, high-coverage variables:
+each default field is available for at least 70% of the prepared 2024 panel.
+When several variables have similar meaning, AudienceKit uses one pragmatic
+field: for example, `income16` instead of the compressed historical `income`,
+`race_detail` from `RACECEN1` instead of the three-category `RACE`, and
+`reltrad` instead of stacking multiple religion-category fields.
 
 Under the hood, the GSS row is rendered with this template:
 
 ```text
-You are a {age} year old {sex} {race} adult living in the {region} region of the United States, raised {res16}.
-You are {marital}. Your highest education is {educ} (degree: {degree}).
+You are a {age} year old {sex} adult living in the {region} region of the United States.
+You describe your race or ethnicity as {race_detail}; you were {born}, and you were raised {res16}.
+You are {marital}, have {childs} children, and your household has {adults}.
+You had {sibs}. Your highest education is {educ} (degree: {degree}); your mother's highest degree was {madeg}.
 Your reported family income last year before taxes was {income16}, from all family sources, not just salary.
-You describe your social class as {class}.
-You work in: {occ10} (occupational prestige: {prestg10}). Compared with other households, your financial situation is {finrela}, and you feel {satfin} about it.
+Your household had {earnrs} in the family earning money from work. You describe your social class as {class}.
+Your current labor-force status is {wrkstat}. When working, you are or were {wrkslf}, and you worked {weekswrk} last year.
+Your occupation area is {occ10} (occupational prestige: {prestg10}).
+Compared with other households, your financial situation is {finrela}, and you feel {satfin} about it.
 Politically you identify as {partyid} and consider yourself {polviews}.
-Your religious preference is {relig}; you attend services {attend}.
-You have {childs} children. You describe yourself as {happy} overall and your health as {health}.
-You watch about {tvhours} hours of TV per day; internet user: {usewww}.
-You believe getting ahead in life comes from {getahead}.
+Your religious tradition is {reltrad}; you describe yourself as {relpersn}, and you attend services {attend}.
+You describe yourself as {happy} overall and your health as {health}.
+On Social Security spending, you think the country spends {natsoc}.
 ```
 
 The `income16` field is the GSS expanded current-family-income card. AudienceKit
 renders it as reported family income from all family sources, not as salary.
-Missing non-core fields render as `Unknown`.
+The 2024 GSS `REGION` field is rendered with its current four-category coding
+(`Northeast`, `Midwest`, `South`, `West`). Missing non-core fields render as
+`Unknown`.
 
 ## How It Works
 

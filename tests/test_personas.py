@@ -103,7 +103,7 @@ def test_prepare_gss_persona_frame_filters_years_and_maps_values() -> None:
             "age": [35, 44],
             "sex": [1, 2],
             "race": [1, 2],
-            "region": [1, 9],
+            "region": [1, 4],
             "res16": [3, 5],
             "marital": [1, 5],
             "educ": [16, 14],
@@ -136,10 +136,115 @@ def test_prepare_gss_persona_frame_filters_years_and_maps_values() -> None:
     assert panel.loc[0, "income16"] is None
 
 
+def test_prepare_gss_persona_frame_keeps_2024_region_and_graduate_education() -> None:
+    raw = pd.DataFrame(
+        {
+            "id": [301],
+            "year": [2024],
+            "wtssnrps": [1.5],
+            "age": [44],
+            "sex": [2],
+            "race": [1],
+            "region": [4],
+            "res16": [6],
+            "marital": [5],
+            "educ": [20],
+            "degree": [4],
+            "income16": [26],
+        }
+    )
+
+    panel = prepare_gss_persona_frame(raw, years=[2024])
+
+    assert panel["id"].tolist() == ["2024-301"]
+    assert panel.loc[0, "region"] == "West"
+    assert panel.loc[0, "educ"] == "8 or more years of college"
+
+
+def test_prepare_gss_persona_frame_maps_rich_high_coverage_persona_fields() -> None:
+    raw = pd.DataFrame(
+        {
+            "id": [302],
+            "year": [2024],
+            "wtssnrps": [2.0],
+            "age": [39],
+            "sex": [1],
+            "race": [3],
+            "racecen1": [16],
+            "region": [3],
+            "res16": [5],
+            "marital": [1],
+            "educ": [16],
+            "degree": [3],
+            "income16": [24],
+            "class": [3],
+            "wrkstat": [1],
+            "weekswrk": [52],
+            "wrkslf": [2],
+            "earnrs": [3],
+            "adults": [2],
+            "born": [1],
+            "sibs": [6],
+            "madeg": [3],
+            "occ10": [1020],
+            "prestg10": [61],
+            "finrela": [4],
+            "satfin": [1],
+            "partyid": [3],
+            "polviews": [4],
+            "reltrad": [7],
+            "relpersn": [4],
+            "attend": [0],
+            "childs": [0],
+            "happy": [2],
+            "health": [2],
+            "natsoc": [1],
+        }
+    )
+
+    panel = prepare_gss_persona_frame(raw, years=[2024])
+
+    assert panel.loc[0, "race_detail"] == "Hispanic"
+    assert panel.loc[0, "wrkstat"] == "working full time"
+    assert panel.loc[0, "weekswrk"] == "52 weeks"
+    assert panel.loc[0, "wrkslf"] == "working for someone else"
+    assert panel.loc[0, "earnrs"] == "3 or more earners"
+    assert panel.loc[0, "adults"] == "2 adults"
+    assert panel.loc[0, "born"] == "born in the United States"
+    assert panel.loc[0, "sibs"] == "6 or more siblings"
+    assert panel.loc[0, "madeg"] == "Bachelor's"
+    assert panel.loc[0, "occ10"] == "management, business, science, and arts occupations"
+    assert panel.loc[0, "reltrad"] == "nonaffiliated"
+    assert panel.loc[0, "relpersn"] == "not religious at all"
+    assert panel.loc[0, "natsoc"] == "too little"
+
+
+def test_gss_persona_fields_use_high_coverage_defaults() -> None:
+    expected = {
+        "race_detail",
+        "wrkstat",
+        "weekswrk",
+        "wrkslf",
+        "earnrs",
+        "adults",
+        "born",
+        "sibs",
+        "madeg",
+        "reltrad",
+        "relpersn",
+        "natsoc",
+    }
+    low_coverage = {"tvhours", "usewww", "getahead"}
+
+    assert expected.issubset(set(ak.GSS_PERSONA_FIELDS))
+    assert low_coverage.isdisjoint(set(ak.GSS_PERSONA_FIELDS))
+
+
 def test_build_persona_renders_unknown_for_missing_values() -> None:
     persona = build_persona({"age": 44, "sex": "Female", "race": None})
 
-    assert "44 year old Female Unknown adult" in persona
+    assert "44 year old Female adult" in persona
+    assert "race or ethnicity as Unknown" in persona
     assert "reported family income last year before taxes was Unknown" in persona
 
 
@@ -149,7 +254,7 @@ def test_build_persona_frames_income16_as_reported_family_income_not_salary() ->
             "age": 68,
             "sex": "Female",
             "race": "White",
-            "region": "South Atlantic",
+            "region": "South",
             "income16": "$10,000 to $12,499",
             "class": "Working Class",
             "finrela": "Below average",
@@ -165,28 +270,35 @@ def test_public_gss_persona_template_renders_rows_like_build_persona() -> None:
     row = {
         "age": "68",
         "sex": "Female",
-        "race": "White",
-        "region": "South Atlantic",
+        "race_detail": "White",
+        "region": "South",
         "res16": "in a large city (over 250,000)",
+        "born": "born in the United States",
         "marital": "Never Married",
-        "educ": "4 Years College",
+        "educ": "4 years of college",
         "degree": "Bachelor's",
+        "madeg": "High school",
         "income16": "$10,000 to $12,499",
+        "earnrs": "1 earner",
         "class": "Working Class",
-        "occ10": "Service occupations",
+        "wrkstat": "retired",
+        "weekswrk": "0 weeks",
+        "wrkslf": "working for someone else",
+        "occ10": "service occupations",
         "prestg10": "Low",
         "finrela": "Below average",
         "satfin": "Not Satisfied",
         "partyid": "Independent",
         "polviews": "Moderate",
-        "relig": "None",
+        "reltrad": "nonaffiliated",
+        "relpersn": "not religious at all",
         "attend": "Never",
         "childs": "0",
+        "adults": "1 adult",
+        "sibs": "2 siblings",
         "happy": "Pretty Happy",
         "health": "Good",
-        "tvhours": "1",
-        "usewww": "Yes",
-        "getahead": "Hard Work",
+        "natsoc": "too little",
     }
 
     assert isinstance(ak.GSS_PERSONA_TEMPLATE, ak.PersonaTemplate)

@@ -26,23 +26,27 @@ HIGH_INCOME_VALUES = {
 }
 
 GSS_PERSONA_FIELDS = (
-    "age", "sex", "race", "region", "res16", "marital", "educ",
-    "degree", "income16", "class", "occ10", "prestg10", "finrela",
-    "satfin", "partyid", "polviews", "relig", "attend", "childs",
-    "happy", "health", "tvhours", "usewww", "getahead",
+    "age", "sex", "race_detail", "region", "res16", "born", "marital",
+    "childs", "adults", "sibs", "educ", "degree", "madeg", "income16",
+    "earnrs", "class", "wrkstat", "weekswrk", "wrkslf", "occ10",
+    "prestg10", "finrela", "satfin", "partyid", "polviews", "reltrad",
+    "relpersn", "attend", "happy", "health", "natsoc",
 )
 
 PERSONA_TEMPLATE = """\
-You are a {age} year old {sex} {race} adult living in the {region} region of the United States, raised {res16}.
-You are {marital}. Your highest education is {educ} (degree: {degree}).
+You are a {age} year old {sex} adult living in the {region} region of the United States.
+You describe your race or ethnicity as {race_detail}; you were {born}, and you were raised {res16}.
+You are {marital}, have {childs} children, and your household has {adults}.
+You had {sibs}. Your highest education is {educ} (degree: {degree}); your mother's highest degree was {madeg}.
 Your reported family income last year before taxes was {income16}, from all family sources, not just salary.
-You describe your social class as {class}.
-You work in: {occ10} (occupational prestige: {prestg10}). Compared with other households, your financial situation is {finrela}, and you feel {satfin} about it.
+Your household had {earnrs} in the family earning money from work. You describe your social class as {class}.
+Your current labor-force status is {wrkstat}. When working, you are or were {wrkslf}, and you worked {weekswrk} last year.
+Your occupation area is {occ10} (occupational prestige: {prestg10}).
+Compared with other households, your financial situation is {finrela}, and you feel {satfin} about it.
 Politically you identify as {partyid} and consider yourself {polviews}.
-Your religious preference is {relig}; you attend services {attend}.
-You have {childs} children. You describe yourself as {happy} overall and your health as {health}.
-You watch about {tvhours} hours of TV per day; internet user: {usewww}.
-You believe getting ahead in life comes from {getahead}."""
+Your religious tradition is {reltrad}; you describe yourself as {relpersn}, and you attend services {attend}.
+You describe yourself as {happy} overall and your health as {health}.
+On Social Security spending, you think the country spends {natsoc}."""
 GSS_PERSONA_TEMPLATE = PersonaTemplate(PERSONA_TEMPLATE)
 
 
@@ -64,6 +68,8 @@ def normalize(value: object) -> str:
 def build_persona(attributes: Mapping[str, Any]) -> str:
     """Render the persona card for one respondent row (dict or Series)."""
     fields = {key: attributes.get(key) for key in GSS_PERSONA_FIELDS}
+    fields["race_detail"] = fields.get("race_detail") or attributes.get("race")
+    fields["reltrad"] = fields.get("reltrad") or attributes.get("relig")
     return GSS_PERSONA_TEMPLATE.render(fields)
 
 
