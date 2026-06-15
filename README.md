@@ -101,7 +101,7 @@ study = ak.Study.from_dict({
         {
             "id": "consideration",
             "type": "likert",
-            "text": "How likely would you be to consider it?"
+            "text": "How likely would you be to consider buying it?"
         },
         {
             "id": "first_reaction",
@@ -134,7 +134,22 @@ the rating scale.
 rater = ak.SemanticSimilarityRater.for_purchase_intent()
 
 ssr_results = ak.SyntheticPanel(respondents).run_ssr_survey(
-    study,
+    ak.Study.from_dict({
+        "title": "Compact EV purchase-intent test",
+        "stimulus": study.stimulus,
+        "questions": [
+            {
+                "id": "consideration",
+                "type": "likert",
+                "text": "How likely would you be to consider buying it?"
+            },
+            {
+                "id": "why",
+                "type": "text",
+                "text": "What is the main reason for your reaction?"
+            },
+        ],
+    }),
     rater=rater,
     reference_set_id="mean",
 )
@@ -316,7 +331,12 @@ template = ak.PersonaTemplate(
     "and currently buy {category} tools. Your budget authority is {budget_owner}."
 )
 
-panel = ak.SyntheticPanel(respondents, persona_template=template)
+panel = ak.SyntheticPanel(
+    respondents,
+    id_column="customer_id",
+    weight_column="survey_weight",
+    persona_template=template,
+)
 results = panel.run_survey(study)
 ```
 

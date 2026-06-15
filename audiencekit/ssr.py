@@ -80,6 +80,10 @@ class SSRResult:
         weight_array = np.asarray(weights, dtype=float)
         if weight_array.shape != (len(self.pmfs),):
             raise ValueError("weights must have one value per PMF row")
+        if not np.all(np.isfinite(weight_array)):
+            raise ValueError("weights must be finite")
+        if np.any(weight_array < 0):
+            raise ValueError("weights must be non-negative")
         if weight_array.sum() <= 0:
             raise ValueError("weights must sum to a positive value")
         return np.average(self.pmfs, axis=0, weights=weight_array)
@@ -209,6 +213,7 @@ class SemanticSimilarityRater:
             responses = responses.reshape(1, -1)
         if responses.ndim != 2:
             raise ValueError("response_embeddings must be a 2D array")
+        self._validate_embeddings(responses)
         if len(responses) == 0:
             return np.empty((0, len(self.scores)))
 
@@ -243,11 +248,14 @@ class SemanticSimilarityRater:
             array = array.reshape(1, -1)
         if array.ndim != 2 or array.shape[0] != len(texts):
             raise ValueError("embedding provider must return a 2D array with one row per text")
-        if not np.all(np.isfinite(array)):
-            raise ValueError("embeddings must be finite")
-        if np.any(np.linalg.norm(array, axis=1) == 0):
-            raise ValueError("embeddings must not contain zero vectors")
+        self._validate_embeddings(array)
         return array
+
+    def _validate_embeddings(self, embeddings: np.ndarray) -> None:
+        if not np.all(np.isfinite(embeddings)):
+            raise ValueError("embeddings must be finite")
+        if len(embeddings) and np.any(np.linalg.norm(embeddings, axis=1) == 0):
+            raise ValueError("embeddings must not contain zero vectors")
 
     def _pmfs_from_embeddings(
         self,

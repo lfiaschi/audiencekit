@@ -25,7 +25,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
@@ -270,6 +270,9 @@ class SyntheticPanel:
         backend: Any | None = None,
         persona_template: PersonaTemplate | str | Any | None = None,
         prompt_builder: Any | None = None,
+        id_column: str = "id",
+        weight_column: str | None = "weight",
+        metadata_columns: Sequence[str] | None = None,
         temperature: float = 0.7,
         max_workers: int = 8,
     ):
@@ -277,11 +280,24 @@ class SyntheticPanel:
         self.backend = backend or make_backend(backend_type, model)
         self.persona_template = persona_template
         self.prompt_builder = prompt_builder
+        self.id_column = id_column
+        self.weight_column = weight_column
+        self.metadata_columns = tuple(metadata_columns or ("age", "sex", "region", "income16", "segment"))
         self.temperature = temperature
         self.max_workers = max_workers
 
     def __len__(self) -> int:
         return len(self.respondents)
+
+    def _base_record(self, row: dict[str, Any]) -> dict[str, Any]:
+        record: dict[str, Any] = {"respondent_id": row.get(self.id_column, row.get("id"))}
+        if self.weight_column and self.weight_column in row:
+            record["weight"] = row.get(self.weight_column)
+        for column in self.metadata_columns:
+            if column in row:
+                record[column] = row.get(column)
+        record.setdefault("segment", row.get("segment", "broad"))
+        return record
 
     def run_survey(
         self,
@@ -312,15 +328,8 @@ class SyntheticPanel:
                 parsed = parse_json_response(raw)
             except RuntimeError:
                 parsed = None
-            record = {
-                "respondent_id": row.get("id"),
-                "age": row.get("age"),
-                "sex": row.get("sex"),
-                "region": row.get("region"),
-                "income16": row.get("income16"),
-                "segment": row.get("segment", "broad"),
-                "valid": parsed is not None,
-            }
+            record = self._base_record(row)
+            record["valid"] = parsed is not None
             if parsed:
                 for q in survey_dict["questions"]:
                     record[q["id"]] = parsed.get(q["id"])
@@ -374,15 +383,8 @@ class SyntheticPanel:
                 parsed = parse_json_response(raw)
             except RuntimeError:
                 parsed = None
-            record = {
-                "respondent_id": row.get("id"),
-                "age": row.get("age"),
-                "sex": row.get("sex"),
-                "region": row.get("region"),
-                "income16": row.get("income16"),
-                "segment": row.get("segment", "broad"),
-                "valid": parsed is not None,
-            }
+            record = self._base_record(row)
+            record["valid"] = parsed is not None
             if parsed:
                 for q in survey_dict["questions"]:
                     value = parsed.get(q["id"])

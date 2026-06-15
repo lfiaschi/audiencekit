@@ -85,3 +85,50 @@ def test_ssr_rejects_anchor_sets_with_inconsistent_scales() -> None:
             ],
             embeddings=TinyEmbeddings({}),
         )
+
+
+def test_ssr_rejects_invalid_precomputed_response_embeddings() -> None:
+    anchors = SSRAnchorSet("purchase", {1: "no", 2: "maybe no", 3: "maybe", 4: "maybe yes", 5: "yes"})
+    rater = SemanticSimilarityRater(
+        [anchors],
+        embeddings=TinyEmbeddings(
+            {
+                "no": [1, 0, 0, 0, 0],
+                "maybe no": [0, 1, 0, 0, 0],
+                "maybe": [0, 0, 1, 0, 0],
+                "maybe yes": [0, 0, 0, 1, 0],
+                "yes": [0, 0, 0, 0, 1],
+            }
+        ),
+    )
+
+    with pytest.raises(ValueError, match="finite"):
+        rater.score_embeddings(np.array([[np.nan, 0, 0, 0, 1]]), reference_set_id="purchase")
+
+    with pytest.raises(ValueError, match="zero vectors"):
+        rater.score_embeddings(np.zeros((1, 5)), reference_set_id="purchase")
+
+
+def test_survey_pmf_rejects_negative_and_nonfinite_weights() -> None:
+    anchors = SSRAnchorSet("purchase", {1: "no", 2: "maybe no", 3: "maybe", 4: "maybe yes", 5: "yes"})
+    rater = SemanticSimilarityRater(
+        [anchors],
+        embeddings=TinyEmbeddings(
+            {
+                "no": [1, 0, 0, 0, 0],
+                "maybe no": [0, 1, 0, 0, 0],
+                "maybe": [0, 0, 1, 0, 0],
+                "maybe yes": [0, 0, 0, 1, 0],
+                "yes": [0, 0, 0, 0, 1],
+                "clear yes": [0, 0, 0, 0, 1],
+                "clear no": [1, 0, 0, 0, 0],
+            }
+        ),
+    )
+    result = rater.score_texts(["clear yes", "clear no"], reference_set_id="purchase")
+
+    with pytest.raises(ValueError, match="non-negative"):
+        result.survey_pmf(weights=[1.0, -0.5])
+
+    with pytest.raises(ValueError, match="finite"):
+        result.survey_pmf(weights=[1.0, np.nan])

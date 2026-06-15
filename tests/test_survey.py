@@ -183,3 +183,51 @@ def test_synthetic_panel_runs_ssr_survey_for_likert_questions() -> None:
     assert results.loc[0, "fit_most_likely"] == 5
     assert results.loc[0, "fit_pmf_5"] == 1.0
     assert results.loc[0, "verbatim"] == "The compact size sounds useful."
+
+
+def test_synthetic_panel_ssr_preserves_custom_dataset_id_and_weight() -> None:
+    respondents = pd.DataFrame(
+        [
+            {
+                "person_id": "u1",
+                "survey_weight": 2.5,
+                "age": 41,
+                "region": "Midwest",
+                "category": "running shoes",
+            }
+        ]
+    )
+    study = Study.from_dict(
+        {
+            "title": "Concept test",
+            "questions": [{"id": "fit", "type": "likert", "text": "Fit?"}],
+        }
+    )
+    rater = SemanticSimilarityRater(
+        [
+            SSRAnchorSet(
+                "purchase",
+                {
+                    1: "I definitely would not buy it.",
+                    2: "I probably would not buy it.",
+                    3: "I am unsure whether I would buy it.",
+                    4: "I probably would buy it.",
+                    5: "I definitely would buy it.",
+                },
+            )
+        ],
+        embeddings=TinyEmbeddings(),
+    )
+
+    panel = SyntheticPanel(
+        respondents,
+        backend=SSRBackend(),
+        id_column="person_id",
+        weight_column="survey_weight",
+        persona_template=PersonaTemplate("You are {age}, live in {region}, and buy {category}."),
+    )
+    results = panel.run_ssr_survey(study, rater=rater, reference_set_id="purchase", verbose=False)
+
+    assert results.loc[0, "respondent_id"] == "u1"
+    assert results.loc[0, "weight"] == 2.5
+    assert results.loc[0, "fit"] == 5.0
