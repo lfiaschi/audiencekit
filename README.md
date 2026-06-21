@@ -236,10 +236,18 @@ study = ak.Study.from_dict({
 
 ### Website Analysis
 
-Use the `skills/persona-browse` workflow with a browsing-capable agent to sample
-one persona, visit a page, and record what that persona understands, trusts,
-misses, and objects to. This is useful for landing pages, product pages, pricing
-pages, and competitor audits.
+Two ways to put a persona in front of a real site:
+
+- **Scripted** — `ak.PersonaNavigator` + `ak.run_browse_session` drive a
+  reproducible, structured walkthrough where the persona reads each page and
+  **chooses its own next action** from the real on-page options. Inject any
+  browser through the `ak.Browser` protocol (agent-browser, Playwright, a
+  fixture). Good for many personas across many sites with structured output.
+- **Exploratory** — the `skills/persona-browse` workflow for a free-form,
+  narrated first-person walkthrough with a browsing-capable agent.
+
+Both are useful for landing pages, product pages, pricing pages, and competitor
+audits.
 
 ### Synthetic Campaign Testing
 

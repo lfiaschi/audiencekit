@@ -31,6 +31,47 @@ For non-GSS data, use `ak.AudienceFrame` plus `ak.PersonaTemplate`.
 
 Show the persona card before browsing. Keep the attributes in working memory and let them shape attention, skepticism, budget sensitivity, and vocabulary.
 
+## Programmatic API
+
+For reproducible, scripted walkthroughs (many personas, many sites, structured
+output), use the native `PersonaNavigator` instead of free-form narration. The
+persona reads each page and **chooses its own next action** from the real on-page
+options — AudienceKit never picks the move with heuristics. The browser is
+injected through the `ak.Browser` protocol, so plug in `agent-browser`,
+Playwright, Selenium, or a fixture:
+
+```python
+import audiencekit as ak
+
+row = ak.sample_panel(ak.load_panel(), n=1, seed=13).iloc[0].to_dict()
+nav = ak.PersonaNavigator(row, backend_type="gemini",
+                          task="find a dinner plan for next week",
+                          extra_fields=(("price_feel", "how the price feels to you"),))
+
+steps = ak.run_browse_session(nav, browser, "https://example.com/", max_steps=8)
+for step in steps:
+    print(step.milestone, "->", step.quote, "| left" if step.left else f"| {step.action.label}")
+```
+
+A minimal `Browser` adapter over the `agent-browser` CLI looks like:
+
+```python
+class AgentBrowser:
+    def __init__(self, session="persona"): self.session = session
+    def open(self, url): run("open", url)
+    def read(self):
+        return ak.PageView(text=run("snapshot", "--compact"), url=run("get", "url"),
+                           title=run("get", "title"))
+    def actions(self):
+        # parse clickable refs from the accessibility snapshot into BrowseAction(id, label, payload=ref)
+        return [...]
+    def execute(self, action): run("click", action.payload)
+    def close(self): run("close")
+```
+
+Pass `boundary=lambda page: "payment" in page.text.lower()` to `run_browse_session`
+to stop before out-of-scope payment, password, phone, or captcha walls.
+
 ## Browse
 
 Use the configured browser automation tool for navigation. Make 4-6 moves maximum:
