@@ -3,7 +3,10 @@ from __future__ import annotations
 import sys
 import types
 
-from audiencekit.backends import GeminiBackend, make_backend
+import pytest
+
+from audiencekit import Media
+from audiencekit.backends import GeminiBackend, LLMBackend, make_backend
 
 
 class FakeModels:
@@ -246,3 +249,30 @@ def test_openai_maps_image_media(monkeypatch) -> None:
     content = completions.calls[0]["messages"][0]["content"]
     assert content[0] == {"type": "text", "text": "hi"}
     assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,cG5n"}}
+
+
+class _LegacyBackend(LLMBackend):
+    """Third-party style subclass written against the pre-media API."""
+
+    def _initialize_client(self) -> None:
+        self.calls = []
+
+    def _complete(self, prompt, image, **kwargs):
+        self.calls.append((prompt, image, kwargs))
+        return "legacy ok"
+
+
+def test_legacy_complete_override_still_receives_image(tmp_path):
+    img = tmp_path / "x.png"
+    img.write_bytes(b"png")
+    backend = _LegacyBackend(api_key="k")
+    assert backend.get_completion("hi", image=img, temperature=0.1) == "legacy ok"
+    assert backend.calls == [("hi", img, {"temperature": 0.1})]
+
+
+def test_legacy_complete_override_rejects_media_without_retrying(monkeypatch):
+    monkeypatch.setattr("audiencekit.backends.time.sleep", lambda s: pytest.fail("retried"))
+    backend = _LegacyBackend(api_key="k")
+    with pytest.raises(ValueError, match="does not accept media"):
+        backend.get_completion("hi", media=[Media(b"png", "image/png")])
+    assert backend.calls == []

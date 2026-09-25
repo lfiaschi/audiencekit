@@ -7,6 +7,7 @@ which is how stimulus images reach the synthetic respondent.
 from __future__ import annotations
 
 import base64
+import inspect
 import mimetypes
 import os
 import time
@@ -68,6 +69,11 @@ def _as_media(
     return items
 
 
+def _accepts_media(cls: type) -> bool:
+    """True when ``cls._complete`` declares a ``media`` parameter."""
+    return "media" in inspect.signature(cls._complete).parameters
+
+
 class LLMBackend(ABC):
     """Minimal completion interface shared by all providers."""
 
@@ -112,12 +118,23 @@ class LLMBackend(ABC):
         ``image=`` is a deprecated alias for a single local-file attachment;
         it is converted into one :class:`Media` item ahead of ``media``.
         """
-        items = _as_media(image, media)
+        if _accepts_media(type(self)):
+            items = _as_media(image, media)
+            call_args: tuple[Any, ...] = (prompt, None)
+            call_kwargs = {"media": items, **kwargs}
+        else:
+            # Legacy subclass overriding ``_complete(prompt, image, **kwargs)``:
+            # hand it the image path as before and never pass ``media=``.
+            if media:
+                raise ValueError(f"{type(self).__name__}._complete does not accept media=")
+            items = ()
+            call_args = (prompt, image)
+            call_kwargs = kwargs
         # Unsupported media is a deterministic caller error: fail fast, don't retry.
         self._check_media(items)
         for attempt in range(MAX_RETRIES + 1):
             try:
-                return self._complete(prompt, None, media=items, **kwargs)
+                return self._complete(*call_args, **call_kwargs)
             except Exception as exc:
                 if attempt == MAX_RETRIES:
                     raise RuntimeError(f"{type(self).__name__} failed after {MAX_RETRIES} retries: {exc}")
