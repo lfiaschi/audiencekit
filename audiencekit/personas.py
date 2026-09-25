@@ -120,6 +120,7 @@ def sample_panel(
     weighted: bool = True,
     weight_column: str = "weight",
     segment_name: str | None = None,
+    replace: bool = False,
 ) -> pd.DataFrame:
     """Sample respondents for a survey run.
 
@@ -132,6 +133,10 @@ def sample_panel(
     panel is representative of the weighted sampling frame rather than of raw
     respondent rows. Segment samples are weighted within the segment. Set
     weighted=False for a plain uniform draw over rows.
+
+    replace (default False): raise ``ValueError`` when ``n`` exceeds the
+    number of matching respondents instead of silently sampling with
+    replacement; pass ``replace=True`` to allow oversampling.
     """
     pool = df.copy()
     label = segment_name or ("broad" if segment is None else segment)
@@ -156,6 +161,7 @@ def sample_panel(
             seed=seed,
             weighted=weighted,
             segment_name=str(label),
+            replace=replace,
         )
     except ValueError as exc:
         if weight_column in str(exc):
