@@ -201,3 +201,48 @@ def test_anthropic_maps_image_media(monkeypatch) -> None:
         "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"},
     }
     assert content[1] == {"type": "text", "text": "hi"}
+
+
+def test_unsupported_media_fails_fast_without_retry(monkeypatch) -> None:
+    import pytest
+    from audiencekit import Media
+    from audiencekit.backends import AnthropicBackend, OpenAIBackend
+
+    def no_sleep(_seconds):
+        raise AssertionError("unsupported media must not be retried")
+
+    monkeypatch.setattr("audiencekit.backends.time.sleep", no_sleep)
+    for cls, env in ((OpenAIBackend, "OPENAI_API_KEY"), (AnthropicBackend, "ANTHROPIC_API_KEY")):
+        monkeypatch.setenv(env, "key")
+        monkeypatch.setattr(cls, "_initialize_client", lambda self: None)
+        backend = cls()
+        with pytest.raises(ValueError, match="video"):
+            backend.get_completion("hi", media=[Media("https://example.com/v.mp4", "video/mp4")])
+
+
+class FakeOpenAICompletions:
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        message = types.SimpleNamespace(content="openai says hi")
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)])
+
+
+def test_openai_maps_image_media(monkeypatch) -> None:
+    from audiencekit import Media
+    from audiencekit.backends import OpenAIBackend
+
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.setattr(OpenAIBackend, "_initialize_client", lambda self: None)
+    backend = OpenAIBackend()
+    completions = FakeOpenAICompletions()
+    backend.client = types.SimpleNamespace(chat=types.SimpleNamespace(completions=completions))
+
+    result = backend.get_completion("hi", media=[Media(b"png", "image/png")])
+
+    assert result == "openai says hi"
+    content = completions.calls[0]["messages"][0]["content"]
+    assert content[0] == {"type": "text", "text": "hi"}
+    assert content[1] == {"type": "image_url", "image_url": {"url": "data:image/png;base64,cG5n"}}
