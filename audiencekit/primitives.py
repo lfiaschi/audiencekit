@@ -60,8 +60,15 @@ class AudienceFrame:
         segment_name: str = "broad",
         seed: int = 42,
         weighted: bool = True,
+        replace: bool = False,
     ) -> pd.DataFrame:
-        """Draw a respondent sample, optionally filtered by a row predicate."""
+        """Draw a respondent sample, optionally filtered by a row predicate.
+
+        Raises ``ValueError`` when ``n`` exceeds the number of matching
+        respondents (or, if ``weighted``, the number with positive weight)
+        unless ``replace=True`` is passed to explicitly allow sampling with
+        replacement.
+        """
         if n <= 0:
             raise ValueError("n must be positive")
 
@@ -71,18 +78,27 @@ class AudienceFrame:
         if pool.empty:
             raise ValueError(f"No respondents available for segment {segment_name!r}")
 
+        available = len(pool)
         if weighted:
             if self.weight_column not in pool.columns:
                 raise ValueError(f"weighted=True needs a {self.weight_column!r} column")
             weights = pd.to_numeric(pool[self.weight_column], errors="coerce").fillna(0.0).to_numpy()
             if weights.sum() <= 0:
                 raise ValueError(f"weighted=True needs positive values in {self.weight_column!r}")
-            replace = len(pool) < n or (weights > 0).sum() < n
+            available = int((weights > 0).sum())
+
+        if n > available and not replace:
+            raise ValueError(
+                f"n={n} exceeds the {available} matching respondents; "
+                "pass replace=True to sample with replacement"
+            )
+
+        if weighted:
             rng = np.random.default_rng(seed)
-            idx = rng.choice(len(pool), size=n, replace=replace, p=weights / weights.sum())
+            idx = rng.choice(len(pool), size=n, replace=replace or n > available, p=weights / weights.sum())
             sampled = pool.iloc[idx]
         else:
-            sampled = pool.sample(n=n, random_state=seed, replace=len(pool) < n)
+            sampled = pool.sample(n=n, random_state=seed, replace=replace or n > available)
 
         sampled = sampled.reset_index(drop=True)
         sampled["segment"] = segment_name

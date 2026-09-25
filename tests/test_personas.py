@@ -30,6 +30,7 @@ def test_sample_panel_accepts_callable_segment_and_uses_weights() -> None:
         seed=7,
         weighted=True,
         segment_name="affluent",
+        replace=True,
     )
 
     assert sampled["id"].tolist() == ["c", "c", "c"]
