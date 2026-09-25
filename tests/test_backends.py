@@ -29,7 +29,16 @@ class FakeGenerateContentConfig:
         self.kwargs = kwargs
 
 
+class FakeFileData:
+    def __init__(self, file_uri, mime_type=None):
+        self.file_uri = file_uri
+        self.mime_type = mime_type
+
+
 class FakePart:
+    def __init__(self, file_data=None):
+        self.file_data = file_data
+
     @classmethod
     def from_bytes(cls, data, mime_type):
         return {"data": data, "mime_type": mime_type}
@@ -44,6 +53,7 @@ def install_fake_genai(monkeypatch):
     genai_module.types = types_module
     types_module.GenerateContentConfig = FakeGenerateContentConfig
     types_module.Part = FakePart
+    types_module.FileData = FakeFileData
     google_module.genai = genai_module
 
     monkeypatch.setitem(sys.modules, "google", google_module)
@@ -97,3 +107,47 @@ def test_gemini_backend_attaches_image(monkeypatch, tmp_path) -> None:
     contents = FakeClient.last_client.models.calls[0]["contents"]
     assert contents[0] == "describe"
     assert contents[1] == {"data": b"png", "mime_type": "image/png"}
+
+
+def test_gemini_media_list_maps_bytes_and_uris(monkeypatch) -> None:
+    from audiencekit import Media
+
+    install_fake_genai(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "key")
+    backend = make_backend()
+
+    backend.get_completion(
+        "hi",
+        media=[Media(b"jpegbytes", "image/jpeg"), Media("https://youtu.be/x", "video/mp4")],
+    )
+
+    contents = FakeClient.last_client.models.calls[0]["contents"]
+    assert contents[0] == "hi"
+    assert contents[1] == {"data": b"jpegbytes", "mime_type": "image/jpeg"}
+    assert contents[2].file_data.file_uri == "https://youtu.be/x"
+
+
+def test_image_alias_becomes_media(monkeypatch, tmp_path) -> None:
+    install_fake_genai(monkeypatch)
+    monkeypatch.setenv("GEMINI_API_KEY", "key")
+    img = tmp_path / "a.png"
+    img.write_bytes(b"png")
+    backend = make_backend()
+
+    backend.get_completion("hi", image=img)
+
+    contents = FakeClient.last_client.models.calls[0]["contents"]
+    assert contents[1] == {"data": b"png", "mime_type": "image/png"}
+
+
+def test_openai_rejects_video(monkeypatch) -> None:
+    import pytest
+    from audiencekit import Media
+    from audiencekit.backends import OpenAIBackend
+
+    monkeypatch.setenv("OPENAI_API_KEY", "key")
+    monkeypatch.setattr(OpenAIBackend, "_initialize_client", lambda self: None)
+    backend = OpenAIBackend()
+
+    with pytest.raises(ValueError, match="video"):
+        backend._complete("hi", None, media=(Media(b"x", "video/mp4"),))
