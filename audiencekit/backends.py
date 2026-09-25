@@ -11,11 +11,29 @@ import mimetypes
 import os
 import time
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any, Optional, Sequence, Union
 
 MAX_RETRIES = 3
 BASE_DELAY = 1.0
+
+
+@dataclass(frozen=True)
+class Media:
+    """One stimulus attachment: raw bytes, or a provider file reference URI.
+
+    ``data`` is either raw bytes for an inline attachment, or a ``str`` URI
+    for a provider file reference (e.g. the Gemini Files API ``uri``, or a
+    YouTube URL).
+    """
+
+    data: Union[bytes, str]
+    mime_type: str
+
+    @property
+    def is_video(self) -> bool:
+        return self.mime_type.startswith("video/")
 
 
 def encode_image(image_path: Union[str, Path]) -> tuple[str, str]:
@@ -27,6 +45,27 @@ def encode_image(image_path: Union[str, Path]) -> tuple[str, str]:
     if not mime_type:
         raise ValueError(f"Cannot determine mime type for: {path}")
     return base64.b64encode(path.read_bytes()).decode("utf-8"), mime_type
+
+
+def media_from_path(path: Union[str, Path]) -> Media:
+    """Build a :class:`Media` from a local file's bytes."""
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Image file not found: {p}")
+    mime_type = mimetypes.guess_type(p)[0]
+    if not mime_type:
+        raise ValueError(f"Cannot determine mime type for: {p}")
+    return Media(p.read_bytes(), mime_type)
+
+
+def _as_media(
+    image: Optional[Union[str, Path]], media: Sequence[Media]
+) -> tuple[Media, ...]:
+    """Merge the deprecated ``image=`` alias into the ``media`` sequence."""
+    items = tuple(media or ())
+    if image:
+        items = (media_from_path(image),) + items
+    return items
 
 
 class LLMBackend(ABC):
@@ -47,16 +86,38 @@ class LLMBackend(ABC):
     @abstractmethod
     def _initialize_client(self) -> None: ...
 
+    def _check_media(self, media: Sequence[Media]) -> None:
+        """Raise ValueError for attachments this provider cannot accept."""
+
     @abstractmethod
-    def _complete(self, prompt: str, image: Optional[Union[str, Path]], **kwargs: Any) -> str: ...
+    def _complete(
+        self,
+        prompt: str,
+        image: Optional[Union[str, Path]],
+        *,
+        media: Sequence[Media] = (),
+        **kwargs: Any,
+    ) -> str: ...
 
     def get_completion(
-        self, prompt: str, image: Optional[Union[str, Path]] = None, **kwargs: Any
+        self,
+        prompt: str,
+        image: Optional[Union[str, Path]] = None,
+        *,
+        media: Sequence[Media] = (),
+        **kwargs: Any,
     ) -> str:
-        """Completion with exponential-backoff retry."""
+        """Completion with exponential-backoff retry.
+
+        ``image=`` is a deprecated alias for a single local-file attachment;
+        it is converted into one :class:`Media` item ahead of ``media``.
+        """
+        items = _as_media(image, media)
+        # Unsupported media is a deterministic caller error: fail fast, don't retry.
+        self._check_media(items)
         for attempt in range(MAX_RETRIES + 1):
             try:
-                return self._complete(prompt, image, **kwargs)
+                return self._complete(prompt, None, media=items, **kwargs)
             except Exception as exc:
                 if attempt == MAX_RETRIES:
                     raise RuntimeError(f"{type(self).__name__} failed after {MAX_RETRIES} retries: {exc}")
@@ -75,14 +136,26 @@ class OpenAIBackend(LLMBackend):
 
         self.client = openai.OpenAI(api_key=self.api_key)
 
-    def _complete(self, prompt: str, image: Optional[Union[str, Path]], **kwargs: Any) -> str:
-        if image:
-            payload, mime = encode_image(image)
-            content: Any = [
-                {"type": "text", "text": prompt},
-                {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{payload}"}},
-            ]
-        else:
+    def _check_media(self, media: Sequence[Media]) -> None:
+        if any(item.is_video or not isinstance(item.data, bytes) for item in media):
+            raise ValueError("OpenAIBackend does not support video or file-reference media")
+
+    def _complete(
+        self,
+        prompt: str,
+        image: Optional[Union[str, Path]],
+        *,
+        media: Sequence[Media] = (),
+        **kwargs: Any,
+    ) -> str:
+        content: Any = [{"type": "text", "text": prompt}]
+        self._check_media(media)
+        for item in media:
+            payload = base64.b64encode(item.data).decode("utf-8")
+            content.append(
+                {"type": "image_url", "image_url": {"url": f"data:{item.mime_type};base64,{payload}"}}
+            )
+        if not media:
             content = prompt
         response = self.client.chat.completions.create(
             model=self.model,
@@ -106,21 +179,25 @@ class GeminiBackend(LLMBackend):
 
         self.client = genai.Client(api_key=self.api_key)
 
-    def _complete(self, prompt: str, image: Optional[Union[str, Path]], **kwargs: Any) -> str:
+    def _complete(
+        self,
+        prompt: str,
+        image: Optional[Union[str, Path]],
+        *,
+        media: Sequence[Media] = (),
+        **kwargs: Any,
+    ) -> str:
         from google.genai import types
 
-        contents: Any = prompt
-        if image:
-            path = Path(image)
-            if not path.exists():
-                raise FileNotFoundError(f"Image file not found: {path}")
-            mime_type = mimetypes.guess_type(path)[0]
-            if not mime_type:
-                raise ValueError(f"Cannot determine mime type for: {path}")
-            contents = [
-                prompt,
-                types.Part.from_bytes(data=path.read_bytes(), mime_type=mime_type),
-            ]
+        parts: list[Any] = [prompt]
+        for item in media:
+            if isinstance(item.data, bytes):
+                parts.append(types.Part.from_bytes(data=item.data, mime_type=item.mime_type))
+            else:
+                parts.append(
+                    types.Part(file_data=types.FileData(file_uri=item.data, mime_type=item.mime_type))
+                )
+        contents: Any = parts if media else prompt
 
         config = types.GenerateContentConfig(
             max_output_tokens=kwargs.pop("max_tokens", 1024),
@@ -146,15 +223,26 @@ class AnthropicBackend(LLMBackend):
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
-    def _complete(self, prompt: str, image: Optional[Union[str, Path]], **kwargs: Any) -> str:
-        if image:
-            payload, mime = encode_image(image)
-            content: Any = [
-                {"type": "image", "source": {"type": "base64", "media_type": mime, "data": payload}},
-                {"type": "text", "text": prompt},
-            ]
-        else:
-            content = [{"type": "text", "text": prompt}]
+    def _check_media(self, media: Sequence[Media]) -> None:
+        if any(item.is_video or not isinstance(item.data, bytes) for item in media):
+            raise ValueError("AnthropicBackend does not support video or file-reference media")
+
+    def _complete(
+        self,
+        prompt: str,
+        image: Optional[Union[str, Path]],
+        *,
+        media: Sequence[Media] = (),
+        **kwargs: Any,
+    ) -> str:
+        content: Any = []
+        self._check_media(media)
+        for item in media:
+            payload = base64.b64encode(item.data).decode("utf-8")
+            content.append(
+                {"type": "image", "source": {"type": "base64", "media_type": item.mime_type, "data": payload}}
+            )
+        content.append({"type": "text", "text": prompt})
         message = self.client.messages.create(
             model=self.model,
             messages=[{"role": "user", "content": content}],
