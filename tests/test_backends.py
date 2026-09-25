@@ -151,3 +151,53 @@ def test_openai_rejects_video(monkeypatch) -> None:
 
     with pytest.raises(ValueError, match="video"):
         backend._complete("hi", None, media=(Media(b"x", "video/mp4"),))
+
+
+class FakeAnthropicMessages:
+    def __init__(self):
+        self.calls = []
+
+    def create(self, **kwargs):
+        self.calls.append(kwargs)
+        return types.SimpleNamespace(
+            content=[types.SimpleNamespace(type="text", text="anthropic says hi")]
+        )
+
+
+class FakeAnthropicClient:
+    def __init__(self):
+        self.messages = FakeAnthropicMessages()
+
+
+def test_anthropic_rejects_video(monkeypatch) -> None:
+    import pytest
+    from audiencekit import Media
+    from audiencekit.backends import AnthropicBackend
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key")
+    monkeypatch.setattr(AnthropicBackend, "_initialize_client", lambda self: None)
+    backend = AnthropicBackend()
+
+    with pytest.raises(ValueError, match="video"):
+        backend._complete("hi", None, media=(Media(b"x", "video/mp4"),))
+
+
+def test_anthropic_maps_image_media(monkeypatch) -> None:
+    from audiencekit import Media
+    from audiencekit.backends import AnthropicBackend
+
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "key")
+    monkeypatch.setattr(AnthropicBackend, "_initialize_client", lambda self: None)
+    backend = AnthropicBackend()
+    backend.client = FakeAnthropicClient()
+
+    result = backend.get_completion("hi", media=[Media(b"png", "image/png")])
+
+    assert result == "anthropic says hi"
+    call = backend.client.messages.calls[0]
+    content = call["messages"][0]["content"]
+    assert content[0] == {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/png", "data": "cG5n"},
+    }
+    assert content[1] == {"type": "text", "text": "hi"}
