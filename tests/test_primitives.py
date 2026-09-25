@@ -31,6 +31,20 @@ def test_sample_raises_when_n_exceeds_pool() -> None:
         frame.sample(n=3)
 
 
+def test_weighted_sample_counts_only_positive_weight_rows() -> None:
+    frame = AudienceFrame(pd.DataFrame({"id": ["a", "b", "c"], "weight": [1.0, 0.0, 1.0]}))
+    with pytest.raises(ValueError, match="exceeds the 2 matching respondents"):
+        frame.sample(n=3)
+    assert len(frame.sample(n=3, weighted=False)) == 3
+
+
+def test_unweighted_sample_raises_when_n_exceeds_pool() -> None:
+    frame = AudienceFrame(pd.DataFrame({"id": ["a", "b"]}))
+    with pytest.raises(ValueError, match="exceeds the 2 matching respondents"):
+        frame.sample(n=3, weighted=False)
+    assert len(frame.sample(n=3, weighted=False, replace=True)) == 3
+
+
 def test_sample_with_replace_true_allows_oversampling() -> None:
     frame = AudienceFrame(pd.DataFrame({"id": ["a", "b"], "weight": [1.0, 1.0]}))
     assert len(frame.sample(n=3, replace=True)) == 3

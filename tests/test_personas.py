@@ -37,6 +37,13 @@ def test_sample_panel_accepts_callable_segment_and_uses_weights() -> None:
     assert sampled["segment"].tolist() == ["affluent", "affluent", "affluent"]
 
 
+def test_sample_panel_raises_when_n_exceeds_segment() -> None:
+    df = pd.DataFrame({"id": ["a", "b"], "weight": [1.0, 1.0]})
+
+    with pytest.raises(ValueError, match="pass replace=True"):
+        sample_panel(df, n=3)
+
+
 def test_load_panel_defaults_to_packaged_2024_panel() -> None:
     panel = load_panel()
 
