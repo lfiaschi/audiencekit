@@ -86,6 +86,9 @@ class LLMBackend(ABC):
     @abstractmethod
     def _initialize_client(self) -> None: ...
 
+    def _check_media(self, media: Sequence[Media]) -> None:
+        """Raise ValueError for attachments this provider cannot accept."""
+
     @abstractmethod
     def _complete(
         self,
@@ -110,6 +113,8 @@ class LLMBackend(ABC):
         it is converted into one :class:`Media` item ahead of ``media``.
         """
         items = _as_media(image, media)
+        # Unsupported media is a deterministic caller error: fail fast, don't retry.
+        self._check_media(items)
         for attempt in range(MAX_RETRIES + 1):
             try:
                 return self._complete(prompt, None, media=items, **kwargs)
@@ -131,6 +136,10 @@ class OpenAIBackend(LLMBackend):
 
         self.client = openai.OpenAI(api_key=self.api_key)
 
+    def _check_media(self, media: Sequence[Media]) -> None:
+        if any(item.is_video or not isinstance(item.data, bytes) for item in media):
+            raise ValueError("OpenAIBackend does not support video or file-reference media")
+
     def _complete(
         self,
         prompt: str,
@@ -140,9 +149,8 @@ class OpenAIBackend(LLMBackend):
         **kwargs: Any,
     ) -> str:
         content: Any = [{"type": "text", "text": prompt}]
+        self._check_media(media)
         for item in media:
-            if item.is_video or not isinstance(item.data, bytes):
-                raise ValueError("OpenAIBackend does not support video or file-reference media")
             payload = base64.b64encode(item.data).decode("utf-8")
             content.append(
                 {"type": "image_url", "image_url": {"url": f"data:{item.mime_type};base64,{payload}"}}
@@ -215,6 +223,10 @@ class AnthropicBackend(LLMBackend):
 
         self.client = anthropic.Anthropic(api_key=self.api_key)
 
+    def _check_media(self, media: Sequence[Media]) -> None:
+        if any(item.is_video or not isinstance(item.data, bytes) for item in media):
+            raise ValueError("AnthropicBackend does not support video or file-reference media")
+
     def _complete(
         self,
         prompt: str,
@@ -224,9 +236,8 @@ class AnthropicBackend(LLMBackend):
         **kwargs: Any,
     ) -> str:
         content: Any = []
+        self._check_media(media)
         for item in media:
-            if item.is_video or not isinstance(item.data, bytes):
-                raise ValueError("AnthropicBackend does not support video or file-reference media")
             payload = base64.b64encode(item.data).decode("utf-8")
             content.append(
                 {"type": "image", "source": {"type": "base64", "media_type": item.mime_type, "data": payload}}
